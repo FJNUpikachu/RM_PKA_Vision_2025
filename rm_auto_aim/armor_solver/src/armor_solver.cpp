@@ -21,7 +21,7 @@
 #include <stdexcept>
 // project
 #include "armor_solver/armor_solver_node.hpp"
-#include "rm_utils/pkaLoggerCenter.hpp"
+#include "rm_utils/logger/log.hpp"
 #include "rm_utils/math/utils.hpp"
 
 namespace pka::auto_aim {
@@ -30,21 +30,17 @@ Solver::Solver(std::weak_ptr<rclcpp::Node> n) : node_(n) {
 
   shooting_range_w_ = node->declare_parameter("solver.shooting_range_width", 0.135);
   shooting_range_h_ = node->declare_parameter("solver.shooting_range_height", 0.135);
-  // TRACKING_ARMOR -> TRACKING_SPINNING 转速阈值
+  // 最大跟踪角速度
   max_tracking_v_yaw_ = node->declare_parameter("solver.max_tracking_v_yaw", 6.0);
-  // TRACKING_SPINNING -> TRACKING_CENTER 转速阈值
-  spinning_to_center_v_yaw_ = node->declare_parameter("solver.spinning_to_center_v_yaw", 90.0);
   // 预测延时
   prediction_delay_ = node->declare_parameter("solver.prediction_delay", 0.0);
   // 控制延时
   controller_delay_ = node->declare_parameter("solver.controller_delay", 0.0);
+  // 跳转到下一装甲板的角度阈值
+  side_angle_ = node->declare_parameter("solver.side_angle", 15.0);
 
-  // 新选板参数（yaml 填角度制，此处转弧度供内部使用）
-  low_speed_fov_      = node->declare_parameter("solver.low_speed_fov",      23.0) * M_PI / 180.0;  // deg->rad
-  lock_switch_thresh_ = node->declare_parameter("solver.lock_switch_thresh",   6.0) * M_PI / 180.0;  // deg->rad
-  coming_angle_       = node->declare_parameter("solver.coming_angle",         57.0) * M_PI / 180.0;  // deg->rad
-  leaving_angle_      = node->declare_parameter("solver.leaving_angle",        17.0) * M_PI / 180.0;  // deg->rad
-  lock_id_ = -1;
+  // 最小的切换角速度阈值（！！！）
+  min_switching_v_yaw_ = node->declare_parameter("solver.min_switching_v_yaw", 1.0);
 
   // 补偿器类型
   std::string compenstator_type = node->declare_parameter("solver.compensator_type", "ideal");
@@ -73,7 +69,6 @@ Solver::Solver(std::weak_ptr<rclcpp::Node> n) : node_(n) {
   state = State::TRACKING_ARMOR;
   overflow_count_ = 0;
   transfer_thresh_ = 5;
-  lock_id_ = -1;
 
   node.reset();
 }
@@ -86,14 +81,11 @@ rm_interfaces::msg::GimbalCmd Solver::solve(const rm_interfaces::msg::Target &ta
   try 
   {
     auto node = node_.lock();
-    max_tracking_v_yaw_      = node->get_parameter("solver.max_tracking_v_yaw").as_double();
-    spinning_to_center_v_yaw_= node->get_parameter("solver.spinning_to_center_v_yaw").as_double();
+    max_tracking_v_yaw_ = node->get_parameter("solver.max_tracking_v_yaw").as_double();
     prediction_delay_ = node->get_parameter("solver.prediction_delay").as_double();
     controller_delay_ = node->get_parameter("solver.controller_delay").as_double();
-    low_speed_fov_      = node->get_parameter("solver.low_speed_fov").as_double()      * M_PI / 180.0;
-    lock_switch_thresh_ = node->get_parameter("solver.lock_switch_thresh").as_double() * M_PI / 180.0;
-    coming_angle_       = node->get_parameter("solver.coming_angle").as_double()       * M_PI / 180.0;
-    leaving_angle_      = node->get_parameter("solver.leaving_angle").as_double()      * M_PI / 180.0;
+    side_angle_ = node->get_parameter("solver.side_angle").as_double();
+    min_switching_v_yaw_ = node->get_parameter("solver.min_switching_v_yaw").as_double();
     // 重置智能指针，释放资源
     node.reset();
   } catch (const std::runtime_error &e) 
@@ -138,17 +130,8 @@ rm_interfaces::msg::GimbalCmd Solver::solve(const rm_interfaces::msg::Target &ta
   // 选择最好的装甲板击打
   std::vector<Eigen::Vector3d> armor_positions = getArmorPositions(
     target_position, target_yaw, target.radius_1, target.radius_2, target.d_zc, target.d_za, target.armors_num);
-
-  // 构建选板参数
-  ArmorSelectParams select_params;
-  select_params.solver_state      = static_cast<int>(state);
-  select_params.low_speed_fov     = low_speed_fov_;
-  select_params.lock_switch_thresh= lock_switch_thresh_;
-  select_params.coming_angle      = coming_angle_;
-  select_params.leaving_angle     = leaving_angle_;
-  select_params.v_yaw             = target.v_yaw;
-
-  int idx = selectBestArmor(armor_positions, target_position, select_params);
+  int idx =
+    selectBestArmor(armor_positions, target_position, target_yaw, target.v_yaw, target.armors_num);
   auto chosen_armor_position = armor_positions.at(idx);
   if (chosen_armor_position.norm() < 0.1) 
   {
@@ -170,12 +153,9 @@ rm_interfaces::msg::GimbalCmd Solver::solve(const rm_interfaces::msg::Target &ta
 
   switch (state) 
   {
-    // ----------------------------------------------------------------
-    // TRACKING_ARMOR：低速，单板瞄准
-    // 升速条件：|v_yaw| > max_tracking_v_yaw_  -> TRACKING_SPINNING
-    // ----------------------------------------------------------------
     case TRACKING_ARMOR: 
     {
+      // 如果目标转速大于阈值转速超过五次，云台不跟随
       if (std::abs(target.v_yaw) > max_tracking_v_yaw_) 
       {
         overflow_count_++;
@@ -187,12 +167,10 @@ rm_interfaces::msg::GimbalCmd Solver::solve(const rm_interfaces::msg::Target &ta
 
       if (overflow_count_ > transfer_thresh_) 
       {
-        state = TRACKING_SPINNING;
-        PKA_DEBUG("armor_solver","TRACKING_ARMOR -> TRACKING_SPINNING");
-        overflow_count_ = 0;
-        lock_id_ = -1;
+        state = TRACKING_CENTER;
       }
 
+      // If isOnTarget() never returns true, adjust controller_delay to force the gimbal to   move
       if (controller_delay_ != 0) 
       {
         target_position.x() += controller_delay_ * target.velocity.x;
@@ -206,8 +184,6 @@ rm_interfaces::msg::GimbalCmd Solver::solve(const rm_interfaces::msg::Target &ta
                                             target.d_zc,
                                             target.d_za,
                                             target.armors_num);
-        select_params.solver_state = static_cast<int>(state);
-        idx = selectBestArmor(armor_positions, target_position, select_params);
         chosen_armor_position = armor_positions.at(idx);
         gimbal_cmd.distance = chosen_armor_position.norm();
         if (chosen_armor_position.norm() < 0.1) {
@@ -217,66 +193,25 @@ rm_interfaces::msg::GimbalCmd Solver::solve(const rm_interfaces::msg::Target &ta
       }
       break;
     }
-
-    // ----------------------------------------------------------------
-    // TRACKING_SPINNING：中速小陀螺，选"即将到正面"的板
-    // 降速条件：|v_yaw| < max_tracking_v_yaw_  -> TRACKING_ARMOR
-    // 升速条件：|v_yaw| > spinning_to_center_v_yaw_ -> TRACKING_CENTER
-    // ----------------------------------------------------------------
-    case TRACKING_SPINNING:
-    {
-      if (std::abs(target.v_yaw) > spinning_to_center_v_yaw_)
-      {
-        // 转速继续升高，进入瞄准中心模式
-        overflow_count_++;
-        if (overflow_count_ > transfer_thresh_)
-        {
-          state = TRACKING_CENTER;
-          PKA_DEBUG("armor_solver","TRACKING_SPINNING -> TRACKING_CENTER");
-          overflow_count_ = 0;
-        }
-      }
-      else if (std::abs(target.v_yaw) < max_tracking_v_yaw_)
-      {
-        // 转速下降，回到单板跟踪
-        overflow_count_++;
-        if (overflow_count_ > transfer_thresh_)
-        {
-          state = TRACKING_ARMOR;
-          PKA_DEBUG("armor_solver","TRACKING_SPINNING -> TRACKING_ARMOR");
-          overflow_count_ = 0;
-          lock_id_ = -1;
-        }
-      }
-      else
-      {
-        // 转速稳定在中速区间，维持当前状态
-        overflow_count_ = 0;
-      }
-      break;
-    }
-
-    // ----------------------------------------------------------------
-    // TRACKING_CENTER：高速，瞄准中心持续开火
-    // 降速条件：|v_yaw| < spinning_to_center_v_yaw_ -> TRACKING_SPINNING
-    // ----------------------------------------------------------------
+    // 如果为瞄准中心模式
     case TRACKING_CENTER: 
     {
-      if (std::abs(target.v_yaw) < spinning_to_center_v_yaw_) 
+      // 如果目标转速小于阈值转速超过五次
+      if (std::abs(target.v_yaw) < max_tracking_v_yaw_) 
       {
         overflow_count_++;
-        if (overflow_count_ > transfer_thresh_)
-        {
-          state = TRACKING_SPINNING;
-          PKA_DEBUG("armor_solver","TRACKING_CENTER -> TRACKING_SPINNING");
-          overflow_count_ = 0;
-        }
       } 
       else 
       {
         overflow_count_ = 0;
       }
-      // 瞄准中心，持续开火
+
+      if (overflow_count_ > transfer_thresh_) 
+      {
+        state = TRACKING_ARMOR;
+        overflow_count_ = 0;
+      }
+      // 因为为瞄准中心所以一直为开火状态
       gimbal_cmd.fire_advice = true;
       calcYawAndPitch(target_position, rpy_, yaw, pitch);
       break;
@@ -298,10 +233,10 @@ rm_interfaces::msg::GimbalCmd Solver::solve(const rm_interfaces::msg::Target &ta
   gimbal_cmd.yaw_diff = (cmd_yaw - rpy_[2]) * 180 / M_PI;
   gimbal_cmd.pitch_diff = (cmd_pitch - rpy_[1]) * 180 / M_PI;
 
-  if (gimbal_cmd.fire_advice) 
-  {
-    PKA_DEBUG("armor_solver", "You Need Fire!");
-  }
+  // if (gimbal_cmd.fire_advice) 
+  // {
+  //   PKA_DEBUG("armor_solver", "You Need Fire!");
+  // }
   return gimbal_cmd;
 }
 
@@ -360,77 +295,49 @@ std::vector<Eigen::Vector3d> Solver::getArmorPositions(const Eigen::Vector3d &ta
 // 选择最好的装甲板进行击打
 int Solver::selectBestArmor(const std::vector<Eigen::Vector3d> &armor_positions,
                             const Eigen::Vector3d &target_center,
-                            const ArmorSelectParams &params) const noexcept {
-  const size_t armors_num = armor_positions.size();
-  if (armors_num == 0) { return 0; }
+                            const double target_yaw,
+                            const double target_v_yaw,
+                            const size_t armors_num) const noexcept {
+  // Angle between the car's center and the X-axis
+  // 机器人中心与x轴之间的角度
+  double alpha = std::atan2(target_center.y(), target_center.x());
+  // Angle between the front of observed armor and the X-axis
+  // 观察到的装甲板前部与x轴之间的角度
+  double beta = target_yaw;
 
-  // 目标中心相对odom的方位角
-  double center_yaw = std::atan2(target_center.y(), target_center.x());
+  // clang-format off
+  // 2x2的矩阵
+  Eigen::Matrix2d R_odom2center;
+  Eigen::Matrix2d R_odom2armor;
+  R_odom2center << std::cos(alpha), std::sin(alpha), 
+                  -std::sin(alpha), std::cos(alpha);
+  R_odom2armor << std::cos(beta), std::sin(beta), 
+                 -std::sin(beta), std::cos(beta);
+  // clang-format on
+  Eigen::Matrix2d R_center2armor = R_odom2center.transpose() * R_odom2armor;
 
-  // 计算每块装甲板相对中心方位角的偏差
-  std::vector<double> delta(armors_num);
-  for (size_t i = 0; i < armors_num; i++) {
-    double armor_yaw = std::atan2(armor_positions[i].y(), armor_positions[i].x());
-    delta[i] = limitRad(armor_yaw - center_yaw);
+  // Equal to (alpha - beta) in most cases
+  // 大多数情况下等于alpha-beta
+  double decision_angle = -std::asin(R_center2armor(0, 1));
+
+  // Angle thresh of the armor jump
+  double theta = (target_v_yaw > 0 ? side_angle_ : -side_angle_) / 180.0 * M_PI;
+
+  // Avoid the frequent switch between two armor
+  // 避免在两块装甲之间频繁切换
+  if (std::abs(target_v_yaw) < min_switching_v_yaw_) 
+  {
+    theta = 0;
   }
 
-  // 选最近（delta绝对值最小）的装甲板
-  auto selectNearest = [&]() -> int {
-    int best = 0;
-    for (size_t i = 1; i < armors_num; i++) {
-      if (std::abs(delta[i]) < std::abs(delta[best])) best = static_cast<int>(i);
-    }
-    return best;
-  };
+  double temp_angle = decision_angle + M_PI / armors_num - theta;
 
-  // TRACKING_CENTER：选板结果不影响实际瞄准点，直接选最近
-  if (params.solver_state == static_cast<int>(TRACKING_CENTER)) {
-    return selectNearest();
+  if (temp_angle < 0) {
+    temp_angle += 2 * M_PI;
   }
 
-  // TRACKING_ARMOR：低速模式，锁定+滞后防横跳
-  if (params.solver_state == static_cast<int>(TRACKING_ARMOR)) {
-    // 找出在视野半角内的候选装甲板
-    std::vector<int> candidates;
-    for (size_t i = 0; i < armors_num; i++) {
-      if (std::abs(delta[i]) <= params.low_speed_fov)
-        candidates.push_back(static_cast<int>(i));
-    }
-    // 视野内无候选，清除锁定，选最近
-    if (candidates.empty()) {
-      lock_id_ = -1;
-      return selectNearest();
-    }
-    // 视野内只有一块，直接锁定
-    if (candidates.size() == 1) {
-      lock_id_ = -1;
-      return candidates[0];
-    }
-    // 视野内有两块，带滞后的锁定逻辑
-    int id0 = candidates[0], id1 = candidates[1];
-    if (lock_id_ != id0 && lock_id_ != id1) {
-      // 初次进入或上次锁定不在候选中，选更近的
-      lock_id_ = (std::abs(delta[id0]) < std::abs(delta[id1])) ? id0 : id1;
-    }
-    int other = (lock_id_ == id0) ? id1 : id0;
-    // 只有当另一块比当前锁定明显更近时才切换（滞后防横跳）
-    if (std::abs(delta[other]) < std::abs(delta[lock_id_]) - params.lock_switch_thresh) {
-      lock_id_ = other;
-    }
-    return lock_id_;
-  }
-
-  double v_yaw = params.v_yaw;
-  for (size_t i = 0; i < armors_num; i++) {
-    if (std::abs(delta[i]) > params.coming_angle) continue;
-    if (v_yaw > 0 && delta[i] > 0 && delta[i] < params.leaving_angle) {
-      return static_cast<int>(i);
-    }
-    if (v_yaw < 0 && delta[i] < 0 && delta[i] > -params.leaving_angle) {
-      return static_cast<int>(i);
-    }
-  }
-  return selectNearest();
+  int selected_id = static_cast<int>(temp_angle / (2 * M_PI / armors_num));
+  return selected_id;
 }
 
 void Solver::calcYawAndPitch(const Eigen::Vector3d &p,

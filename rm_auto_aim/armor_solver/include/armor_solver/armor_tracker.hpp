@@ -29,6 +29,7 @@
 #include <geometry_msgs/msg/vector3.hpp>
 // third party
 #include <Eigen/Eigen>
+#include <vector>
 // project
 #include "rm_interfaces/msg/armors.hpp"
 #include "rm_interfaces/msg/target.hpp"
@@ -48,7 +49,7 @@ enum class ArmorsNum { NORMAL_4 = 4, BALANCE_2 = 2, OUTPOST_3 = 3 };
 class Tracker {
 public:
   // 有参跟踪器构造函数 
-  Tracker(double max_match_distance, double max_match_yaw, double r_min = 0.12, double r_max = 0.4);
+  Tracker(double max_match_distance, double max_match_yaw);
 
   using Armors = rm_interfaces::msg::Armors;
   using Armor = rm_interfaces::msg::Armor;
@@ -78,6 +79,10 @@ public:
 
   // 跟踪的装甲板
   Armor tracked_armor;
+
+  // test
+  // std::vector<Armor> same_id_armors;
+
   // 跟踪的装甲板标签
   std::string tracked_id;
   // 跟踪的装甲板数量
@@ -106,11 +111,6 @@ private:
 
   double max_match_distance_;
   double max_match_yaw_diff_;
-
-  // Radius clamp limits (configurable via yaml)
-  // EKF预测半径的上下界限制
-  double r_min_;
-  double r_max_;
 
   int detect_count_;
   int lost_count_;
