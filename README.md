@@ -1,6 +1,7 @@
-# Pikachu战队2025 Vision Project
+[README待完善]
+# Pikachu战队2026 Vision Project
 
- 本项目为福建师范大学Pikachu战队2025赛季视觉主项目框架，本框架引用中南大学FYT战队2024赛季视觉开源作为框架进行开发。
+ 本项目为福建师范大学Pikachu战队2026赛季视觉主项目框架。
 
 
 ## 一、项目结构
@@ -18,139 +19,221 @@
 │   │
 │   ├── rm_camera_driver (相机驱动)（大华新相机包）
 │   │
+│   ├── rm_hik_camera_driver (相机驱动)（新相机包）
+│   │
 │   └── rm_serial_driver (串口驱动)
 │
 ├── rm_auto_aim (自瞄算法)
-│
+│   │
+│   ├── armor_detector
+│   │
+│   └── armor_solver
 │
 ├── rm_utils (工具包) 
-│   ├── math (包括PnP解算、弹道补偿等)
-│   │
-│   └── logger (日志库)
 │
 └── rm_upstart (自启动配置)
 ```
 
-## 二、环境
+## 二、环境配置
 
-**注：安装环境时请搞清楚各个库之间的相互依赖关系，请按顺序安装，如Ceres库作为Sophus的库依赖，而Sophus库则作为G2O库的依赖!**
+### Ubuntu 22.04
 
-### 1. 基础
-- Ubuntu 22.04
-- ROS2 Humble
-- 大华相机驱动/海康相机驱动
+### 相机驱动
 
-### 2. 自瞄 
+#### 海康相机SDK
+海康相机免驱，可不用安装
+保证该包内包含海康SDK即可。
 
-- 相机包驱动安装（先cd到相机驱动所在的包再打开终端执行以下指令）（！必须安装相机驱动 ！）
+#### 大华相机驱动（待补充）
+!大华相机必须安装相机驱动!
+*注：大华相机驱动安装过程麻烦，若明确不使用大华相机则可选择性安装。
 
+内核版本：5.11.0及以下
+编译器版本：gcc 11及以下
+
+*若执行过鱼香肉丝ros安装，gcc版本已经为11，故只需要降低内核版本*
+
+##### 降内核安装后升回
+由于Ubuntu 22.04内核版本为6.5.0，需要导入Ubuntu20.04 focal仓库源下载5.11.0版内核
+
+**参考链接**[https://blog.csdn.net/qq_62368277/article/details/134273919?ops_request_misc=&request_id=&biz_id=102&utm_term=ubuntu%E9%99%8D%E4%BD%8E%E4%BD%BF%E7%94%A8%E7%9A%84%E5%86%85%E6%A0%B8%E5%88%B0%E6%8C%87%E5%AE%9A%E7%9A%84%E7%89%88%E6%9C%AC&utm_medium=distribute.pc_search_result.none-task-blog-2~all~sobaiduweb~default-0-134273919.142^v102^pc_search_result_base2&spm=1018.2226.3001.4187](ubuntu降低使用的内核到指定的版本)
+
+(1)先清理一遍原先的源：鱼香肉丝ros一键操作即可
+
+(2)加入ubuntu focal仓库
+  ```bash
+  sudo nano /etc/apt/sources.list
+  ```
+  将以下内容加到后面
+  ```txt
+   deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse
+   deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse
+   deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse
+  ```
+
+(3)bash内操作
+  ```bash
+  apt-cache search linux| grep 5.11
+  ```
+  此时能够搜索到5.11.0-xx的内核版本
+  ```bash
+  sudo apt-get install linux-headers-5.11.0-44-generic linux-image-5.11.0-44-generic
+  # 查看安装的内核版本
+  dpkg --get-selections | grep linux-image
+  # 以下两个是扩展，不一定成功，有网卡依赖不兼容问题
+  # 反正降内核安装完就升回来了可以不管它
+  sudo apt-get install linux-tools-5.11.0-44-generic
+  sudo apt-get install linux-modules-extra-5.11.0-44-generic
+  # 再次查看安装的内核版本
+  dpkg --get-selections  | grep linux
+  # 一定要更新一遍！
+  sudo update-grub
+  ```
+  
+(4)开机重启 按Esc Shift等进入grub界面 指定进入的内核
+
+  ```bash
+  # 查看内核版本，出现5.11即成功
+  uname -r
+  ```
+
+(5)战队仓库**RM_PKA_Camera**内有大华驱动，下载后解压，然后执行
   ```bash
   chmod +x MVviewer_Ver2.3.1_Linux_x86_Build20210926.run 
   sudo ./MVviewer_Ver2.3.1_Linux_x86_Build20210926.run
   ```
 
-- fmt库
+(6)安装好后再次重启，在grub界面把内核版本换回来，后建议使用鱼香肉丝ros再次清理源。
+
+##### 编译器版本
+建议先运行ros2一键安装，其gcc版本即11。
+
+### ROS2 humble + OpenCV
+
+*注：鱼香肉丝一键安装ros内有包含opencv 4.5.0，故无需自行安装opencv。
+  ```bash
+  wget http://fishros.com/install -O fishros && . fishros
+  ```
+安装时注意换源。
+如此前安装过大华相机驱动，此时也可把旧源一起清理掉。
+
+### fmt库
   ```bash
   sudo apt install libfmt-dev
   ```
+
+**以下为各数学库，请务必！按顺序安装**
+**注：安装环境时请搞清楚各个库之间的相互依赖关系，请按顺序安装，如Ceres库作为Sophus的库依赖，而Sophus库则作为G2O库的依赖!**
+**注意这些库都不能直接git clone项目，必须下载release中的文件，否则会导致make install时找不到版本头文件。**
+
+### Ceres库
   
-- 安装Ceres库相关依赖
-  
+#### 安装相关依赖
+
    ```bash
    sudo apt-get install liblapack-dev libsuitesparse-dev libcxsparse3 libgflags-dev libgoogle-glog-dev libgtest-dev
    ```
 
-   通过包管理器安装的依赖仍有不全，需补充下载abseil-cpp和googletest库
+   **通过包管理器安装的依赖仍有不全，需补充下载abseil-cpp和googletest库**
    
+#### googletest库
+
    ```bash
    wget https://github.com/google/googletest/releases/download/v1.16.0/googletest-1.16.0.tar.gz
-   tar -xzvf ./googletest-1.16.0.tar.gz
-   cd ./googletest-1.16.tar.gz
+   tar -xzvf googletest-1.16.0.tar.gz
+   cd googletest-1.16.0
    mkdir build && cd build 
    cmake ..
    make -j1
    sudo make install
    ```
 
+#### abseil-cpp库
+
    ```bash
    wget https://github.com/abseil/abseil-cpp/releases/download/20250127.1/abseil-cpp-20250127.1.tar.gz
    tar -xzvf abseil-cpp-20250127.1.tar.gz
-   cd ./abseil-cpp-20250127.1
+   cd abseil-cpp-20250127.1
    mkdir build && cd build 
    cmake ..
    make -j1
    sudo make install
-   ## 注意abseil不能直接clone项目，必须下载release中的文件，否则会导致make install时找不到版本头文件
    ```
    
-- Ceres库 (能量机关曲线拟合)
-  
+#### Cere源码编译
+   ```bash
+   wget https://github.com/ceres-solver/ceres-solver/archive/refs/tags/2.2.0.tar.gz
+   tar -xzvf 2.2.0.tar.gz
+   cd 2.2.0/ceres-solver-2.2.0
+   mkdir build && cd build 
+   cmake ..
+   make -j1
+   sudo make install
+   ```
+
+#### Cere apt下载
+**由于源码编译后colcon build找不到cere，故还需apt一遍**
+
    ```bash
    sudo apt install libceres-dev
    ```
-   
-- Ceres库（利用源码编译安装）（本Ceres库需要自行去寻找源码编译包，注：虽然已经之间安装了Ceres库，但仍存在找不到此库的一部分依赖，故推荐使用源码编译安装！）
-  
-   ```bash
-   cd ceres-solver-2.2.0
-   mkdir build && cd build 
-   cmake ..
-   make -j1
-   sudo make install
-   ```
-   
-   
-   
-- Sophus库 (G2O库依赖)
+
+#### Sophus库
   
    **注：git下来的Sophus库的CMakeLists.txt中的cmake_minimum_required(VERSION xx.xx)的版本要求可能会高于系统的版本，将xx.xx改成符合系统的版本即可**
    
    ```bash
-   git clone https://github.com/strasdat/Sophus
-   cd Sophus
+   wget https://github.com/strasdat/Sophus/archive/refs/tags/1.24.6.tar.gz
+   tar -xzvf 1.24.6.tar.gz
+   cd 1.24.6/Sophus-1.24.6
    mkdir build && cd build
    cmake ..
    make -j1
    sudo make install
    ```
-   
-   
-   
-- G2O库 (优化装甲板Yaw角度)
+
+#### G2O库
+    
+##### 安装依赖
+   ```bash
+   sudo apt install libeigen3-dev libspdlog-dev libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5
+   ```
+
+##### 源码编译
+   ```bash
+   wget https://github.com/RainerKuemmerle/g2o/archive/refs/tags/20241228_git.tar.gz
+   tar -xzvf 20241228_git.tar.gz
+   cd 20241228_git/g2o-20241228_git
+   mkdir build && cd build
+   cmake ..
+   make -j1
+   sudo make install
+   ```
+
+#### OpenVINO (神经网络识别)
   
-    ```bash
-    sudo apt install libeigen3-dev libspdlog-dev libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5
-    git clone https://github.com/RainerKuemmerle/g2o
-    cd g2o
-    mkdir build && cd build
-    cmake ..
-    make -j1
-    sudo make install
-    ```
-### 3. 能量机关(后续更新这步暂时不用)
-- OpenVINO库 (能量机关识别)
-  
-   参考[OpenVINO官方文档](https://docs.openvino.ai/2022.3/openvino_docs_install_guides_installing_openvino_from_archive_linux.html)，建议同时安装GPU相关依赖
+   参考[OpenVINO官方文档](https://docs.openvino.ai/2025/index.html)
 
-- Ceres库 (能量机关曲线拟合)
-    ```bash
-    sudo apt install libceres-dev
-    ```
+   ```bash
+   wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+   sudo apt-key add GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+   echo "deb https://apt.repos.intel.com/openvino ubuntu22 main" | sudo tee /etc/apt/sources.list.d/intel-openvino.list
+   sudo apt update
+   apt-cache search openvino
+   sudo apt install openvino-2025.4.0
+   ```
 
-### 5. 其他
-
-本文档中可能有缺漏，如有，可以用`rosdep`安装剩下依赖
+**本文档中可能有缺漏，如有，可以用`rosdep`安装剩下依赖**
 
 ```bash
 rosdep install --from-paths src --ignore-src -r -y
 ```
 
-**注：在进行完本指令之后如果直接编译运行会出现serial库的一些问题需再执行一句指令便可成功编译和运行**
+**注：在进行完本指令之后，如果直接编译运行会出现serial库的一些问题，需再执行一句指令便可成功编译和运行**
 
 ```bash
 sudo apt remove libasio-dev
 ```
-
 
 ## 三、编译与运行
 
@@ -158,7 +241,9 @@ sudo apt remove libasio-dev
 
 ```bash
 # 编译
-colcon build --symlink-install --parallel-workers 2 #本仓库包含的功能包过多，建议限制同时编译的线程数
+rm -rf build install log
+colcon build --symlink-install --parallel-workers 2 
+#本仓库包含的功能包过多，建议限制同时编译的线程数
 # 手动运行
 source install/setup.bash
 ros2 launch rm_bringup bringup.launch.py
@@ -173,14 +258,7 @@ ros2 topic list
 # ...
 ```
 
-**注：后续会更新的日志包**
-
-默认日志和内录视频路径为`~/fyt2024-log/`
-
-> 我们的日志库是用fmt搓的，不使用ros2的日志库
-
-
-## 四、自启动
+## 四、开机自启动
 
 - 编译程序后，进入rm_upstart文件夹
 
@@ -246,18 +324,27 @@ systemctl stop rm
 systemctl disable rm
 ```
 
-
 ## 五、调车步骤
 
-- 查看相机图片：使用rviz2
+### rviz2
+
 ```bash
 rviz2
 ```
 ->订阅result_image话题
 
 
-- 使用foxglove看曲线和话题数据
+### foxglove
 
+#### 安装
+在官网安装foxgolve客户端
+先安装foxglove的ros2依赖
+```bash
+sudo apt update
+sudo apt install ros-humble-foxglove-bridge
+```
+
+#### 调试
 在PKA自瞄包下先启动，然后在同目录下再开一个终端
 
 ```bash
@@ -265,7 +352,7 @@ source install/setup.bash
 ros2 launch foxglove_bridge foxglove_bridge_launch.xml
 ```
 
-此时打开foxglove：打开连接->ws://localhost:xxxx
+此时打开foxglove：打开连接（不要选ros2那个选项！）->ws://localhost:xxxx（会自动填好）
 
 > 获取hostname
 
@@ -278,81 +365,20 @@ sudo ufw disable
 ws://ip地址:xxxx
 ->点击topic可看到各类话题即为成功
 
-
-## 六、调车建议
-调rm_bringup/config内参数
-
-1.相机参数：改`camera_driver_params.yaml`内exposure_time和gain
-
-2.EKF：`armor_solver_params.yaml`
-订阅target和measurement的x y z曲线 平移装甲板看曲线收敛情况
-一条平滑 一条有毛刺 两条曲线需要基本重合
-
-> 想要云台响应过快 ：调小测量噪声协方差矩阵 (R小)
-> 云台太抖动      ：调小过程噪声协方差矩阵 (Q小)
-
-3.关于选板：`armor_solver_params.yaml`
-
-max_match_distance: 0.5
-两帧间目标可匹配的最大距离
-
-max_match_yaw_diff: 1.0
-两帧间目标同一块装甲板可匹配的最大yaw角差（大于这个值则认为装甲板发生跳变）
-
-tracking_thres: 2
-`DETECTING` 状态进入 `TRACKING` 状态需要连续识别到的帧数
-
-lost_time_thres: 1.0
-`TRACKING` 状态进入 `LOST` 状态需要连续丢失的时间（s）
-
-4.串口时间戳：`serial_driver_params.yaml`
-时间戳补偿 timestamp_offset: 0.006
-
-
-### 相机标定
+## 将代码上传github
 ```bash
-ros2 run camera_calibration cameracalibrator --size 7x10 --square 0.015 image:=/image_raw
+git clone https://github.com/FJNUpikachu/RM_PKA_Vision_2026.git
+git add .
+git commit -m "solver target发值问题与可视化问题基本修复 部分小功能及EKF仍有部分问题"
+git push origin main
 ```
 
 
 ## 维护者及开源许可证
-
-> 赛季结束开源
-
-Maintainer : FYT Vision Group
-
-```
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
+待更新
 
 ## 致谢
+待更新
 
-感谢这个赛季视觉组的每一个成员的付出，感谢以下开源项目：
-
-- [rm_vision](https://gitlab.com/rm_vision) rv是本项目的基础，提供了一套可参考的，规范、易用、高效的视觉算法框架
-- [rmoss](https://github.com/robomaster-oss/rmoss_core) rmoss项目为RoboMaster提供通用基础功能模块包，本项目的串口驱动模块基于rmoss_base进行开发
-- [沈阳航空航天大学TUP战队2022赛季步兵视觉开源](https://github.com/tup-robomaster/TUP-InfantryVision-2022) 为本项目的能量机关识别与预测算法提供了参考
-- [沈阳航空航天大学YOLOX关键点检测模型](https://github.com/tup-robomaster/TUP-NN-Train-2) 提供了本项目能量机关识别模型训练代码
-- [四川大学OpenVINO异步推理代码](https://github.com/Ericsii/rm_vision-OpenVINO) 提供了本项目能量机关识别模型部署的代码
-- [上海交通大学自适应扩展卡尔曼滤波](https://github.com/julyfun/rm.cv.fans/tree/main) 使用Ceres自动微分功能，自动计算Jacobian矩阵
-
-
-## 更新日志（FYT）
-
-- 参考上交开源，实现了EKF的自动求Jacobian矩阵
-- 增加了粒子滤波器，为状态估计提供新的选择
-- 修复了打符崩溃的问题（OpenVINO在推理时不能创建新的InferRequest，通过互斥锁解决）
-- 将自瞄解算修改为定时器回调，固定解算的频率
-- 增加手动补偿器ManualCompensator
-- 重写PnP选解逻辑
-- 修改了BA优化的代码，抽象出新的类ArmorPoseEstimator
+## 更新日志
+20251229 更新环境配置部分：大华相机驱动

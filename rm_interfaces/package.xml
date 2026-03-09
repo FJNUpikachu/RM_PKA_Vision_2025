@@ -4,8 +4,8 @@
   <name>rm_interfaces</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="chen.junn@outlook.com">chenjun</maintainer>
-  <license>TODO: License declaration</license>
+  <maintainer email="harryleevis2005@outlook.com">timothy3181</maintainer>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
@@ -13,6 +13,9 @@
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
 
+  <build_depend>std_msgs</build_depend>
+  <exec_depend>std_msgs</exec_depend>
+  
   <depend>geometry_msgs</depend>
 
   <export>

@@ -48,7 +48,7 @@ enum class ArmorsNum { NORMAL_4 = 4, BALANCE_2 = 2, OUTPOST_3 = 3 };
 class Tracker {
 public:
   // 有参跟踪器构造函数 
-  Tracker(double max_match_distance, double max_match_yaw);
+  Tracker(double max_match_distance, double max_match_yaw, double r_min = 0.12, double r_max = 0.4);
 
   using Armors = rm_interfaces::msg::Armors;
   using Armor = rm_interfaces::msg::Armor;
@@ -106,6 +106,11 @@ private:
 
   double max_match_distance_;
   double max_match_yaw_diff_;
+
+  // Radius clamp limits (configurable via yaml)
+  // EKF预测半径的上下界限制
+  double r_min_;
+  double r_max_;
 
   int detect_count_;
   int lost_count_;

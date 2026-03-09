@@ -26,23 +26,16 @@ find_package(fmt REQUIRED)
 # include
 include_directories(include)
 
-add_library(pkalogger SHARED
-  src/logger/logger_impl.cpp
-  src/logger/writer.cpp
-  src/logger/logger_pool.cpp
-)
-target_link_libraries(pkalogger fmt::fmt)
-ament_target_dependencies(pkalogger fmt)
-
 # create rm_utils lib
 add_library(${PROJECT_NAME} SHARED
-  src/math/utils.cpp
   src/math/pnp_solver.cpp
   src/math/trajectory_compensator.cpp
   src/math/manual_compensator.cpp
   src/math/extended_kalman_filter.cpp
+  src/math/utils.cpp
   src/url_resolver.cpp
   src/heartbeat.cpp
+  src/pkaLoggerCenter.cpp
 )
 
 set(dependencies
@@ -74,17 +67,9 @@ install(TARGETS ${PROJECT_NAME}
   RUNTIME DESTINATION bin
   INCLUDES DESTINATION include
 )
-install(TARGETS pkalogger
-  EXPORT pkalogger
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include
-)
 
 # export lib lib
 ament_export_targets(${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_targets(pkalogger HAS_LIBRARY_TARGET)
 ament_export_dependencies(${dependencies} fmt)
 
 # test

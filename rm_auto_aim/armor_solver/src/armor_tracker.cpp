@@ -31,17 +31,19 @@
 // third party
 #include <angles/angles.h>
 // project
-#include "rm_utils/logger/log.hpp"
+#include "rm_utils/pkaLoggerCenter.hpp"
 
 namespace pka::auto_aim {
   // 跟踪器构造函数
-Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
+Tracker::Tracker(double max_match_distance, double max_match_yaw_diff, double r_min, double r_max)
 : tracker_state(LOST)
 , tracked_id(std::string(""))
 , measurement(Eigen::VectorXd::Zero(4))
 , target_state(Eigen::VectorXd::Zero(9))
 , max_match_distance_(max_match_distance)
 , max_match_yaw_diff_(max_match_yaw_diff)
+, r_min_(r_min)
+, r_max_(r_max)
 , detect_count_(0)
 , lost_count_(0)
 , last_yaw_(0) {}
@@ -197,14 +199,14 @@ void Tracker::update(const Armors::SharedPtr &armors_msg) noexcept
 
   // Prevent radius from spreading
   // 防止半径扩散
-  if (target_state(8) < 0.12) 
+  if (target_state(8) < r_min_) 
   {
-    target_state(8) = 0.12;
+    target_state(8) = r_min_;
     ekf->setState(target_state);
   } 
-  else if (target_state(8) > 0.4) 
+  else if (target_state(8) > r_max_) 
   {
-    target_state(8) = 0.4;
+    target_state(8) = r_max_;
     ekf->setState(target_state);
   }
 
