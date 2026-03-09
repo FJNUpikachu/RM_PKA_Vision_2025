@@ -3,7 +3,7 @@
     camera_info_url: package://rm_bringup/config/camera_info.yaml
     camera_name: narrow_stereo
     exposure_time: 3000
-    gain: 12.0
+    gain: 15.0
 
 
     # exposure_time: 2500
