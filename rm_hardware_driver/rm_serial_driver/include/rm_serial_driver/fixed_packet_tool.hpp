@@ -213,7 +213,7 @@ bool FixedPacketTool<capacity>::recvPacket(FixedPacket<capacity> &packet)
     else 
     {
       // 如果是断帧，拼接缓存，并遍历校验，获得合法数据
-      // PKA_INFO("serial_driver", "checkPacket() failed, check if it is a broken frame");
+      PKA_INFO("serial_driver", "checkPacket() failed, check if it is a broken frame");
       if (recv_buf_len_ + recv_len > capacity * 2) //recv_len = 16 capacity = 16
       {
         recv_buf_len_ = 0;
@@ -240,11 +240,11 @@ bool FixedPacketTool<capacity>::recvPacket(FixedPacket<capacity> &packet)
         }
       }
       // 表明断帧，或错误帧。
-      // PKA_WARN("serial_driver",
-      //          "checkPacket() failed with recv_len:{}, frame head:{}, frame end:{}",
-      //          recv_len,
-      //          tmp_buffer_[0],
-      //          tmp_buffer_[recv_len - 1]);
+      PKA_WARN("serial_driver",
+               "checkPacket() failed with recv_len:{}, frame head:{}, frame end:{}",
+               recv_len,
+               tmp_buffer_[0],
+               tmp_buffer_[recv_len - 1]);
       return false;
     }
   }
