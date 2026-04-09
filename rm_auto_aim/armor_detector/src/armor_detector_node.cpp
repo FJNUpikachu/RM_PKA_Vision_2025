@@ -5,6 +5,7 @@ namespace pka::auto_aim {
 ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions& options) : 
 Node("armor_detector", options) {
     // register logger node
+    PKA_REGISTER_LOGGER("armor_detector", "~/fyt2024-log", INFO);
     PKA_INFO("armor_detector", "Starting ArmorDetectorNode!");
 
     // init detector
@@ -14,6 +15,7 @@ Node("armor_detector", options) {
     this->debug_ = this->declare_parameter("debug", false);
     this->optimize_yaw = this->declare_parameter("optimize_yaw", true);
     this->search_range = this->declare_parameter("search_range", 140.0);
+    this->yaw_offset_inclined = this->declare_parameter("yaw_offset_inclined", 5.0);
 
     // create armors publisher
     this->armors_pub_ = this->create_publisher<rm_interfaces::msg::Armors>(
@@ -69,8 +71,9 @@ Node("armor_detector", options) {
             this->cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
             this->cam_info_ = std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
             this->estimator_ = std::make_shared<ArmorPoseEstimator>(camera_info);
-            this->estimator_->enableOpt(this->optimize_yaw);
-            this->estimator_->setSearchRange(this->search_range);
+            this->estimator_->option.enable_optimize_yaw = this->optimize_yaw;
+            this->estimator_->option.search_range = this->search_range;
+            this->estimator_->option.inclined = this->yaw_offset_inclined;
 
             // get info for once
             this->cam_info_sub_.reset();
@@ -137,6 +140,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
                 this->odom_frame_, this->gimbal_frame_, target_time, rclcpp::Duration::from_seconds(0.01)
             );
             auto msg_g2o_q = R_gimbal2odom_tf.transform.rotation;
+            
             tf2::Quaternion tf_g2o_q;
             tf2::fromMsg(msg_g2o_q, tf_g2o_q);
             tf2::Matrix3x3 tf_g2o_mat(tf_g2o_q);

@@ -28,7 +28,7 @@
 // files
 #include <armor_detector/armor_detector.hpp>
 #include <armor_detector/armor_pose_estimator.hpp>
-#include <rm_utils/pkaLoggerCenter.hpp>
+#include <rm_utils/logger/log.hpp>
 #include <rm_utils/url_resolver.hpp>
 #include <rm_utils/heartbeat.hpp>
 
@@ -43,8 +43,10 @@ private:
     // estimator
     bool optimize_yaw;
     double search_range;
+    double yaw_offset_inclined;
     Eigen::Matrix3d R_camera2gimbal;
     Eigen::Matrix3d R_gimbal2odom;
+    Eigen::Vector3d t_camera2gimbal;
     std::shared_ptr<ArmorPoseEstimator> estimator_;
 
     // image sub
