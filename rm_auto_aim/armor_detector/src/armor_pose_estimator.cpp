@@ -301,8 +301,8 @@ void ArmorPoseEstimator::optimizeYaw(Armor& armor, double yaw_opt_inclined) {
     // 完全相信cv的多解pnp函数
     double yaw_init = armor.rpy_in_odom[2];
 
-    const double search_half = (this->option.search_range / 2.0f) * CV_PI / 180.0f;
-    const double step = 0.5f * CV_PI / 180.0;
+    double search_half = (this->option.search_range / 2.0f) * CV_PI / 180.0f;
+    double step = 0.5f * CV_PI / 180.0;
 
     double min_error = std::numeric_limits<double>::max();
     double best_yaw = yaw_init;
