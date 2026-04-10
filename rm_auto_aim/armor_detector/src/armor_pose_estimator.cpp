@@ -267,7 +267,7 @@ double ArmorPoseEstimator::calculateReprojectionError(const Armor& armor, double
         this->obj_points_map_[ArmorType::SMALL] : this->obj_points_map_[ArmorType::LARGE];
 
     // tvec
-    auto t_armor2camera = armor.xyz_in_camera;
+    const auto& t_armor2camera = armor.xyz_in_camera;
     cv::Vec3d tvec(t_armor2camera[0], t_armor2camera[1], t_armor2camera[2]);
 
     // rvec
